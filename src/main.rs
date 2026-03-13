@@ -1,4 +1,9 @@
 use std::process::Command;
+use std::thread;
+use std::time::Duration;
+
+const MAX_RETRIES: u32 = 5;
+const RETRY_INTERVAL: Duration = Duration::from_secs(10);
 
 fn run(program: &str, args: &[&str]) -> Result<String, String> {
     let output = Command::new(program)
@@ -29,12 +34,21 @@ fn main() {
         }
     }
 
-    // Force NTP resync
-    match run("w32tm", &["/resync", "/force"]) {
-        Ok(msg) => println!("[resync] {}", msg.trim()),
-        Err(e) => {
-            eprintln!("[resync] failed: {e}");
-            std::process::exit(1);
+    // Force NTP resync — retry until network is ready
+    for attempt in 1..=MAX_RETRIES {
+        match run("w32tm", &["/resync", "/force"]) {
+            Ok(msg) => {
+                println!("[resync] {}", msg.trim());
+                return;
+            }
+            Err(e) if attempt < MAX_RETRIES => {
+                eprintln!("[resync] attempt {attempt}/{MAX_RETRIES} failed: {e}");
+                thread::sleep(RETRY_INTERVAL);
+            }
+            Err(e) => {
+                eprintln!("[resync] all {MAX_RETRIES} attempts failed: {e}");
+                std::process::exit(1);
+            }
         }
     }
 }
